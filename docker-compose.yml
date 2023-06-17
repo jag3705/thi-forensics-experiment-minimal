@@ -1,0 +1,151 @@
+services:
+
+  ids:
+    image: jag3705/thi-forensics-exp-ids
+    build:
+      context: ./ids
+      dockerfile: Snort_Ngnix.Dockerfile
+    user: root
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - './log/ids:/var/log/snort'
+    ports:
+      - "80:80"
+    networks:
+      - dmz
+      - dmz-upstream
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=false"
+
+  reverse-proxy:
+    image: traefik:2.5
+    networks:
+      - dmz-upstream
+      - frontend
+      - backend
+    restart: unless-stopped
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--entrypoints.web.address=:80"
+      - "--accesslog=true"
+      - "--accesslog.filePath=/var/log/traefik/access.log"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - './log/web:/var/log/traefik'
+
+  frontend:
+    image: jag3705/thi-forensics-exp-frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    networks:
+      - frontend
+      - backend
+    depends_on:
+      - backend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend.rule=Host(`thi-app.test`)"
+      - "traefik.http.routers.frontend.entrypoints=web"
+      - "traefik.http.services.frontend.loadbalancer.server.port=80"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/"]
+      interval: 1s
+      timeout: 1s
+      retries: 20
+
+  backend:
+    image: jag3705/thi-forensics-exp-backend
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    networks:
+      - backend
+    depends_on:
+      - db
+      - cache
+    volumes:
+      - './log/app/access:/var/log/nginx'
+      - './log/app/app:/var/www/html/storage/logs'
+      - './data/app/public:/var/www/html/storage/app/public'
+      - './data/app/private:/var/www/html/storage/app/homework'
+    environment:
+      APP_ENV: dev
+      APP_URL: http://backend.thi-app.test
+      APP_KEY: base64:F2PUV1zMfY25n4hPXzYmt2wHVbbpS2lJrD2Dym6iZAo=
+      DB_CONNECTION: mysql
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_DATABASE: thi_app
+      DB_USERNAME: root
+      DB_PASSWORD: DneWpEKzQnWCM4BcTrchKv7qDH
+      LOG_CHANNEL: stderr
+      CACHE_DRIVER: redis
+      REDIS_HOST: cache
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/api/v1/system/is-alive"]
+      interval: 1s
+      timeout: 1s
+      retries: 20
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.backend.rule=Host(`backend.thi-app.test`)"
+      - "traefik.http.routers.backend.entrypoints=web"
+      - "traefik.http.services.backend.loadbalancer.server.port=80"
+
+  cache:
+    image: "bitnami/redis:latest"
+    environment:
+      - ALLOW_EMPTY_PASSWORD=yes
+      - DISABLE_COMMANDS=FLUSHDB,FLUSHALL,CONFIG
+      - REDIS_AOF_ENABLED=no
+    command: /opt/bitnami/scripts/redis/run.sh --maxmemory 4000mb
+    networks:
+      - backend
+
+  db:
+    image: mariadb:latest
+    volumes:
+      - './data/db:/var/lib/mysql'
+      - './log/db:/var/log/mysql'
+    environment:
+      MYSQL_ROOT_PASSWORD: DneWpEKzQnWCM4BcTrchKv7qDH
+      MYSQL_DATABASE: thi_app
+    networks:
+      - backend
+    command: --log-bin=/var/log/mysql/mysql-bin.log
+
+  token-crawler:
+    image: jag3705/thi-forensics-exp-token-crawler
+    build:
+      context: ./offensive/token-crawler
+      dockerfile: Dockerfile
+    labels:
+      - "traefik.enable=false"
+    volumes:
+      - './data/offensive/token-crawler:/var/www/html'
+    ports:
+      - 8080:8080
+    networks:
+      - public
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080"]
+      interval: 1s
+      timeout: 1s
+      retries: 20
+
+networks:
+  public:
+  dmz:
+  dmz-upstream:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 192.168.0.0/24
+          gateway: 192.168.0.1
+  backend:
+  frontend:
