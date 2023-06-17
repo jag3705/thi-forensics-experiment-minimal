@@ -2,9 +2,6 @@ services:
 
   ids:
     image: jag3705/thi-forensics-exp-ids
-    build:
-      context: ./ids
-      dockerfile: Snort_Ngnix.Dockerfile
     user: root
     cap_add:
       - NET_ADMIN
@@ -38,9 +35,6 @@ services:
 
   frontend:
     image: jag3705/thi-forensics-exp-frontend
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
     networks:
       - frontend
       - backend
@@ -59,9 +53,6 @@ services:
 
   backend:
     image: jag3705/thi-forensics-exp-backend
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
     networks:
       - backend
     depends_on:
@@ -120,9 +111,6 @@ services:
 
   token-crawler:
     image: jag3705/thi-forensics-exp-token-crawler
-    build:
-      context: ./offensive/token-crawler
-      dockerfile: Dockerfile
     labels:
       - "traefik.enable=false"
     volumes:
